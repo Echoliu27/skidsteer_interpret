@@ -48,11 +48,10 @@ import plotly.express as px
 ###############################
 ## Random Forest Page
 ###############################
-@st.cache
 def read_split_data_rf():
 	# Read and process tabular data : only 96 rows of data
 	df_orig = pd.read_csv('data/final_unscaled.csv')
-	df_tabular = pd.read_csv('data/final_tabular.csv')
+	df_tabular = pd.read_csv('data/final_tabular2.csv')
 	df_mturk = pd.read_csv('data/mturk_96.csv')
 	df_join = pd.merge(df_tabular, df_mturk, on=['unique_id'], how='right')
 
@@ -65,12 +64,15 @@ def read_split_data_rf():
 	for col in num_col_list:
 	    normalize_scaler(df_join, col)
 
+	mm_scaler_price = preprocessing.StandardScaler()
+	df_join["winning_bid"] = mm_scaler_price.fit_transform(df_join["winning_bid"].to_numpy().reshape(-1, 1))
+
 	# split into train and test
 	y = df_join['winning_bid']
-	X = df_join.drop(['winning_bid','model','hours_final_nan','age_at_sale_nan','bucket_x','engine','tires','transmission'],axis=1)
+	X = df_join.drop(['Unnamed: 0','winning_bid','model','hours_final_nan','age_at_sale_nan','bucket_x','engine','tires','transmission'],axis=1)
 	X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.80, random_state=0)
 	
-	return X_train, X_test, y_train, y_test, df_orig
+	return X_train, X_test, y_train, y_test, df_orig, mm_scaler_price
 
 @st.cache
 def read_data_nn():
@@ -93,23 +95,26 @@ def rf_global_interpretation():
 
 
 
-def rf_local_interpretation(X_train,X_test,y_train,y_test, slider_idx):
+def rf_local_interpretation(X_train,X_test,y_train,y_test, slider_idx, mm_scaler_price):
 	train_features = X_train.drop(['unique_id','make','month_sold'], axis = 1)
 	valid_features = X_test.drop(['unique_id','make','month_sold'], axis = 1)
 	rgm = RandomForestRegressor(max_depth=5, n_estimators=50, random_state=0)
 	rgm.fit(train_features, y_train)
+	predictions = rgm.predict(valid_features)
 	# rgm.score(valid_features, valid_y)
 
 	data_for_prediction = valid_features.iloc[slider_idx,:]  # use 1 row of data here. Could use multiple rows if desired
+	predict_unscaled = np.exp(mm_scaler_price.inverse_transform(predictions))[slider_idx]
 
-	explainer = shap.TreeExplainer(rgm)
+	explainer = shap.TreeExplainer(rgm,model_output='raw')
 
 	# Calculate Shap values
 	shap_values = explainer.shap_values(data_for_prediction)
 	shap.initjs()
-	shap.force_plot(np.around(explainer.expected_value, decimals = 1), np.around(shap_values, decimals=1), np.around(data_for_prediction, decimals=1), matplotlib=True, figsize=(12,3))
+	shap.force_plot(explainer.expected_value, np.around(shap_values, decimals=2), np.around(data_for_prediction, decimals=2), matplotlib=True, text_rotation = 12, figsize=(12,3))
 	st.pyplot(bbox_inches='tight',dpi=300,pad_inches=0)
 	plt.clf()
+	return predict_unscaled
 
 
 def rf_features_extracted(X_test, row_find, slider_idx):
@@ -130,7 +135,7 @@ def rf_features_extracted(X_test, row_find, slider_idx):
 	st.markdown("#### 3. Bucket sentiments: " + str(X_test['bucket_sentiment'].to_list()[slider_idx]))  ## this entire page want it to be interpretable
 	st.markdown("#### 4. Tires sentiments: " + str(X_test['tires_sentiment'].to_list()[slider_idx]))  ## this entire page want it to be interpretable
 
-def rf_page(X_train,X_test,y_train,y_test, df_orig):
+def rf_page(X_train,X_test,y_train,y_test, df_orig, mm_scaler_price):
 
 	############
 	# side bar
@@ -144,7 +149,8 @@ def rf_page(X_train,X_test,y_train,y_test, df_orig):
 	st.sidebar.image('image/rf_image/'+ str(row_find['unique_id'].to_list()[0]) + '.jpg', use_column_width=True)
 	st.sidebar.markdown('**Make: **' + X_test['make'].to_list()[slider_idx]) # should be a variable
 
-	
+
+	st.sidebar.markdown('**Hours listed on meters: **' + str(row_find['hours_final'].to_list()[0]))
 	st.sidebar.markdown('**Age at sale: **' + str(row_find['age_at_sale'].to_list()[0]))
 	st.sidebar.markdown('**Month of Sold Date: **' + row_find['month_sold'].to_list()[0])
 	st.sidebar.markdown('**Engine: **' + str(row_find['engine'].to_list()[0]))
@@ -160,9 +166,23 @@ def rf_page(X_train,X_test,y_train,y_test, df_orig):
 	# Interpretation
 	##################
 	st.header("🚩 Global Interpretation")
+	st.markdown("**Random Forest's Most Important Features**")
 	rf_global_interpretation()
+
 	st.header("🚩 Local Interpretation")
-	rf_local_interpretation(X_train,X_test,y_train,y_test, slider_idx)
+	st.markdown("**Interpretation For Each Prediction**")
+	info_shap = st.button('How this works')
+	if info_shap:
+	    st.info("""
+	    This chart illustrates how each feature collectively influence the prediction outcome. Features in red are more likely to influence price positively, and the features in blue influence price negatively.
+	    Each arrow's size represents the magnitude of the corresponding feature's effect.
+	    The "base value" (in grey print) marks the model's average prediction over the training set.
+	    The "output value" (in grey print) is model's prediction.
+	    [Read more about forceplot](https://github.com/slundberg/shap).
+	    """)
+	predict_unscaled = rf_local_interpretation(X_train,X_test,y_train,y_test, slider_idx, mm_scaler_price)
+	st.markdown('**Actual Price **' + str(row_find['winning_bid'].to_list()[0]) )
+	st.markdown('**Predicted Price **' + str(np.around(predict_unscaled, decimals = 1)))
 
 
 def nn_page(df_results, file_list, df_orig):
@@ -183,14 +203,23 @@ def nn_page(df_results, file_list, df_orig):
 	return file_list[slider_idx]
 
 def nn_interpretation(file_index):
-	info_global = st.button('How it is calculated')
-	if info_global:
+	info_cam = st.button('CAM Explained')
+	if info_cam:
 	    st.markdown("""
-	    #### How this works
-	    The importance of each feature is derived from [permutation importance](https://www.kaggle.com/dansbecker/permutation-importance) -
-	    by randomly shuffle a feature, how much does the model performance decrease. The ± takes into account the randomness of shuffles.
+	    CAM visualization shows the **network attention** of the original image.  
+	    The **greener** the areas, the **more positive attention** the network is giving to.  
+	    The **redder** the areas, the **more negative attention** the network is giving to.  
+	    The more positive/negative attention the area has, the more it **drives up/down the final price**.  
+	    Our model favors a blue sky, black frame, clean body color and dislikes the rusty bucket and sandy ground.
 	    """)
 	st.image('results/images/'+ str(file_index) + '_cam.png', use_column_width=True)
+	info_salmap = st.button('Guided Saliency Map Explained')
+	if info_salmap:
+	    st.markdown("""
+	    The **first image** shows a monochromatic gradient, which is taking the pixel-wise max gradient values from the gradients in RGB channels in the **second image**.   
+	    The **third/fourth image** only keeps the negative/positive gradients from the first image.   
+	    The **brighter or more colorful the pixels**, the **more impact of the pixels on the output price**.
+	    """)
 	st.image('results/images/'+ str(file_index) + '_gb.png', use_column_width=True)
 
 
@@ -202,14 +231,13 @@ def main():
 	###############################################
 	model_dim = st.sidebar.selectbox('Choose a model', ('Random Forest', 'Pre-trained Neutral Net'))
 	if model_dim == 'Random Forest':
-		X_train, X_test, y_train, y_test, df_orig = read_split_data_rf()
-		rf_page(X_train,X_test,y_train,y_test,df_orig)
+		X_train, X_test, y_train, y_test, df_orig, mm_scaler_price = read_split_data_rf()
+		rf_page(X_train,X_test,y_train,y_test,df_orig,mm_scaler_price)
 	else:
 		df_results, file_list, df_orig = read_data_nn()
 		file_index = nn_page(df_results, file_list, df_orig)
 		nn_interpretation(file_index)
 		# st.write(file_index)
-
 
 
 
