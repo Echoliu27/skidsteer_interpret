@@ -20,15 +20,15 @@ streamlit run app.py
 │   ├── final_unscaled.csv            ## unscaled data
 │   ├── mturk_96.csv                  ## mturk data
 ├── image
-|   ├── rf_image
-|   │   ├── bigiron_AC6813.jpg        ## original image
-|   │   ├── ...
-|   └── most_least_colorfulness.PNG   ## demo image for a button
+│   ├── rf_image
+│   │   ├── bigiron_AC6813.jpg        ## original image
+│   │   ├── ...
+│   └── most_least_colorfulness.PNG   ## demo image for a button
 ├── results
-|   ├── images
-|   │   ├── 118_cam.png               ## cam image (118 corresponds to the index/row number in results_val.csv)
-|   │   ├── 118_gn.png                ## guided saliency image
-|   │   ├── ...
+│   ├── images
+│   │   ├── 118_cam.png               ## cam image (118 corresponds to the index/row number in results_val.csv)
+│   │   ├── 118_gn.png                ## guided saliency image
+│   │   ├── ...
 │   ├── file_list.csv                 
 │   ├── results_train.csv             ## training set for nn
 │   └── results_val.csv               ## validation set for nn
