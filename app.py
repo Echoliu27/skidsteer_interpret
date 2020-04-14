@@ -19,22 +19,8 @@ from eli5.sklearn import PermutationImportance
 # plotly
 import plotly.express as px
 
-# DONE:
-# [🎉] Sample tabular data
-# [🎉] Display global and local interpretation
-# [🎉] Add PDP chart
-# [🎉] Allow csv upload
-# [🎉] auto encode
-# [🎉] Filter for misclassification
-# [🎉] deploy to heroku
-# [🎉] add more ml algos: xgb, lgbm
-# [🎉] add confusion matrix
+
 # TODO:
-# [ ] fix pred
-# [ ] turn the first table into a plot
-# [ ] add another demo data
-# [ ] add pdp for xgb
-# [ ] add distribution plot for individual datapoint
 # [ ] add circleCI
 # GOOD-TO-HAVE:
 # [ ] css formating
@@ -55,7 +41,7 @@ def read_split_data_rf():
 	df_mturk = pd.read_csv('data/mturk_96.csv')
 	df_join = pd.merge(df_tabular, df_mturk, on=['unique_id'], how='right')
 
-	# normalize columns
+	# Normalize predictors
 	def normalize_scaler(df_join, col):
 	    std_scaler = preprocessing.StandardScaler()
 	    df_join[col] = std_scaler.fit_transform(np.array(df_join[col]).reshape(-1, 1))
@@ -64,27 +50,16 @@ def read_split_data_rf():
 	for col in num_col_list:
 	    normalize_scaler(df_join, col)
 
+	# Normalize response variable and keep mm_scaler_price to scale back
 	mm_scaler_price = preprocessing.StandardScaler()
 	df_join["winning_bid"] = mm_scaler_price.fit_transform(df_join["winning_bid"].to_numpy().reshape(-1, 1))
 
-	# split into train and test
+	# Split into train and test
 	y = df_join['winning_bid']
 	X = df_join.drop(['Unnamed: 0','winning_bid','model','hours_final_nan','age_at_sale_nan','bucket_x','engine','tires','transmission'],axis=1)
 	X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.80, random_state=0)
 	
 	return X_train, X_test, y_train, y_test, df_orig, mm_scaler_price
-
-@st.cache
-def read_data_nn():
-	# Read and process data
-	df_val = pd.read_csv('results/results_val.csv')
-	df_orig = pd.read_csv('data/final_unscaled.csv')
-	file_list = pd.read_csv('results/file_list.csv', header = None)
-
-	file_list = set(file_list[0].str[:3].to_list())
-	file_list = list(map(int, file_list))
-
-	return df_val, file_list, df_orig
 
 
 def rf_global_interpretation():
@@ -92,7 +67,6 @@ def rf_global_interpretation():
 	fig = px.bar(df, x="importance", y="variable", orientation='h',
              labels={'importance':'Scaled Feature Importance'}, color_discrete_sequence=["#5254a3"])
 	st.plotly_chart(fig)
-
 
 
 def rf_local_interpretation(X_train,X_test,y_train,y_test, slider_idx, mm_scaler_price):
@@ -131,15 +105,15 @@ def rf_features_extracted(X_test, row_find, slider_idx):
 		image.close()
 
 	# 2. Sentiments
-	st.markdown("#### 2. Engine sentiments: " + str(X_test['engine_sentiment'].to_list()[slider_idx]))  ## this entire page want it to be interpretable
-	st.markdown("#### 3. Bucket sentiments: " + str(X_test['bucket_sentiment'].to_list()[slider_idx]))  ## this entire page want it to be interpretable
-	st.markdown("#### 4. Tires sentiments: " + str(X_test['tires_sentiment'].to_list()[slider_idx]))  ## this entire page want it to be interpretable
+	st.markdown("#### 2. Engine sentiments: " + str(X_test['engine_sentiment'].to_list()[slider_idx])) 
+	st.markdown("#### 3. Bucket sentiments: " + str(X_test['bucket_sentiment'].to_list()[slider_idx])) 
+	st.markdown("#### 4. Tires sentiments: " + str(X_test['tires_sentiment'].to_list()[slider_idx]))
 
 def rf_page(X_train,X_test,y_train,y_test, df_orig, mm_scaler_price):
 
-	############
+	##################
 	# side bar
-	############
+	##################
 	st.sidebar.title("Which datapoint to explain")
 	n_data = X_test.shape[0]
 	slider_idx = st.sidebar.slider('Please select a datapoint', 0, n_data-1)
@@ -185,12 +159,28 @@ def rf_page(X_train,X_test,y_train,y_test, df_orig, mm_scaler_price):
 	st.markdown('**Predicted Price **' + str(np.around(predict_unscaled, decimals = 1)))
 
 
+###################################
+## Pretrained Neural Network Page
+###################################
+
+@st.cache
+def read_data_nn():
+	# Read and process data
+	df_val = pd.read_csv('results/results_val.csv')
+	df_orig = pd.read_csv('data/final_unscaled.csv')
+	file_list = pd.read_csv('results/file_list.csv', header = None)
+
+	file_list = set(file_list[0].str[:3].to_list())
+	file_list = list(map(int, file_list))
+
+	return df_val, file_list, df_orig
+
+
 def nn_page(df_results, file_list, df_orig):
 	st.sidebar.title("Which datapoint to explain")
 	n_data = len(file_list)
 	slider_idx = st.sidebar.slider('Please select a datapoint', 0, n_data-1)
 	row_find_scaled = df_results.iloc[[file_list[slider_idx]],:]
-	# st.write(row_find_scaled['unique_id'].to_list()[0])
 	row_find = df_orig[df_orig['unique_id'] == row_find_scaled['unique_id'].to_list()[0]]
 	st.sidebar.markdown('**Make: **' + row_find['make'].to_list()[0]) # should be a variable
 
@@ -203,6 +193,9 @@ def nn_page(df_results, file_list, df_orig):
 	return file_list[slider_idx]
 
 def nn_interpretation(file_index):
+	"""
+	A small demo using 20 images saved in results/images folder
+	"""
 	info_cam = st.button('CAM Explained')
 	if info_cam:
 	    st.markdown("""
@@ -226,9 +219,9 @@ def nn_interpretation(file_index):
 
 def main():
 
-	###############################################
-	# Read and process tabular data (default is the first test image)
-	###############################################
+	##################################################
+	# Choose a model and render the corresponding page
+	##################################################
 	model_dim = st.sidebar.selectbox('Choose a model', ('Random Forest', 'Pre-trained Neutral Net'))
 	if model_dim == 'Random Forest':
 		X_train, X_test, y_train, y_test, df_orig, mm_scaler_price = read_split_data_rf()
@@ -237,8 +230,6 @@ def main():
 		df_results, file_list, df_orig = read_data_nn()
 		file_index = nn_page(df_results, file_list, df_orig)
 		nn_interpretation(file_index)
-		# st.write(file_index)
-
 
 
 
